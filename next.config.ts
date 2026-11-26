@@ -6,6 +6,9 @@ const config: NextConfig = {
   turbopack: { root: fileURLToPath(new URL('.', import.meta.url)) },
   devIndicators: false,
   serverExternalPackages: ['@huggingface/transformers'],
+  outputFileTracingExcludes: {
+    '*': ['./.model-cache/**/*'],
+  },
 };
 
 export default config;

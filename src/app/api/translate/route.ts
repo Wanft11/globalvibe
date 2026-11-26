@@ -6,7 +6,7 @@ const revision = '39d480d52a9ea3065a1f117adfe4dbc55de10e6f';
 let translator: Promise<TranslationPipeline> | undefined;
 
 function loadTranslator() {
-  env.cacheDir = resolve(process.cwd(), '.model-cache');
+  env.cacheDir = process.env.VERCEL ? '/tmp/.model-cache' : resolve(process.cwd(), '.model-cache');
   translator ??= pipeline('translation', model, { revision, dtype: 'q8', device: 'cpu' }).catch(error => {
     translator = undefined;
     throw error;

@@ -1,5 +1,14 @@
 import { mockServices } from './mock-services';
-import type { ConsumerFeedback, ContentVersion, CulturalRisk, LocalizationConfig, PlatformAsset, ProductInput, ProductProfile, SellingPoint } from './types';
+import type {
+  ConsumerFeedback,
+  ContentVersion,
+  CulturalRisk,
+  LocalizationConfig,
+  PlatformAsset,
+  ProductInput,
+  ProductProfile,
+  SellingPoint,
+} from './types';
 
 export interface LocalizationServices {
   analyzeProduct(input: ProductInput): Promise<ProductProfile>;
@@ -25,32 +34,33 @@ export const localizationServices: LocalizationServices = {
     if (profile.source !== 'text') return points;
 
     const chinese = points.filter(point => hasChinese(point.original));
-    if (chinese.some(point => point.original.length > 240)) throw new LocalTranslationError('invalid-input');
-    let translations: string[] = [];
-    if (chinese.length) {
-      try {
-        const response = await fetch('/api/translate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(chinese.map(point => point.original)),
-        });
-        if (!response.ok) throw new LocalTranslationError(response.status === 400 ? 'invalid-input' : 'unavailable');
-        const result = await response.json();
-        if (!Array.isArray(result.translations) || result.translations.length !== chinese.length ||
-            !result.translations.every((line: unknown) => typeof line === 'string' && line.trim())) {
-          throw new LocalTranslationError('unavailable');
-        }
-        translations = result.translations;
-      } catch (error) {
-        if (error instanceof LocalTranslationError) throw error;
-        throw new LocalTranslationError('unavailable');
-      }
-    }
+    if (!chinese.length) return points;
 
-    let index = 0;
-    return points.map(point => ({
-      ...point,
-      literal: hasChinese(point.original) ? translations[index++] : point.original,
-    }));
+    const clipped = chinese.map(point => point.original.slice(0, 235));
+    try {
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clipped),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok) return points;
+      const result = await response.json();
+      if (
+        !Array.isArray(result.translations) ||
+        result.translations.length !== clipped.length ||
+        !result.translations.every((line: unknown) => typeof line === 'string' && line.trim())
+      ) {
+        return points;
+      }
+      let index = 0;
+      return points.map(point => ({
+        ...point,
+        literal: hasChinese(point.original) ? result.translations[index++] : point.original,
+      }));
+    } catch {
+      // Non-fatal: GetRun diagnose stage also supplies literal translations if local OPUS isn't ready
+      return points;
+    }
   },
 };
