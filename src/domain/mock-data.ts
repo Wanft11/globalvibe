@@ -967,7 +967,7 @@ export const demoPresets: Record<DemoCaseId, DemoPreset> = {
         },
         sections: sectionPairs([
           ['Caption', 'Misty ridge, cold air, real crema — no camp stove required.\n\nHeats to 198°F (92°C) on a 30,000 mAh battery and packs into 1.37 lbs of anodized aluminum. Goodbye, sad instant packets.'],
-          ['Hashtags', '#CampCoffee #OverlandingGear #VanlifeDiaries #OutdoorCoffee # EspressoAnywhere'],
+          ['Hashtags', '#CampCoffee #OverlandingGear #VanlifeDiaries #OutdoorCoffee #EspressoAnywhere'],
         ]),
         culturalNotes: [
           'Pairs Obsidian Sage visual theme with misty pine sunrise imagery.',

@@ -41,32 +41,49 @@ const genericFeedback: ConsumerFeedback[] = [
 ];
 
 export function splitSourcePoints(description: string): string[] {
-  const raw = description
+  const sentences = description
     .trim()
     .split(/[。！？!?\n；;]+/)
     .map(line => line.trim())
     .filter(Boolean);
 
-  const chunks: string[] = [];
-  for (const segment of raw) {
-    if (segment.length <= 210) {
-      chunks.push(segment);
+  // Split multi-clause sentences on Chinese commas or non-numeric English commas (preserving e.g. 20,000mAh)
+  const commaPattern = /，|(?<!\d),(?!\d)/;
+  const rawClauses: string[] = [];
+  for (const sentence of sentences) {
+    if (sentences.length < 5 && commaPattern.test(sentence)) {
+      const parts = sentence.split(commaPattern).map(s => s.trim()).filter(Boolean);
+      rawClauses.push(...parts);
+    } else if (sentence.length > 160 && commaPattern.test(sentence)) {
+      const parts = sentence.split(commaPattern).map(s => s.trim()).filter(Boolean);
+      rawClauses.push(...parts);
     } else {
-      const subParts = segment.split(/[，,、]+/).map(s => s.trim()).filter(Boolean);
-      let current = '';
-      for (const part of subParts) {
-        if (!current) current = part;
-        else if (`${current}，${part}`.length <= 200) current = `${current}，${part}`;
-        else {
-          chunks.push(current);
-          current = part.slice(0, 200);
-        }
-      }
-      if (current) chunks.push(current);
+      rawClauses.push(sentence);
     }
-    if (chunks.length >= 5) break;
   }
-  return chunks.slice(0, 5);
+
+  // Only merge tiny 1-2 char particles so 3-4+ char Chinese selling points (e.g. "快速充电", "双口输出") stay separate
+  const merged: string[] = [];
+  for (const clause of rawClauses) {
+    const prev = merged.at(-1);
+    if (prev && (clause.length <= 2 || prev.length <= 2) && `${prev}，${clause}`.length <= 200) {
+      merged[merged.length - 1] = `${prev}，${clause}`;
+    } else {
+      merged.push(clause.slice(0, 1200));
+    }
+  }
+
+  if (merged.length <= 5) return merged;
+
+  // Group evenly into 5 balanced points without dropping trailing numbers/specs
+  const balanced: string[] = [];
+  const total = merged.length;
+  for (let g = 0; g < 5; g++) {
+    const start = Math.floor((g * total) / 5);
+    const end = Math.floor(((g + 1) * total) / 5);
+    balanced.push(merged.slice(start, end).join('，').slice(0, 1200));
+  }
+  return balanced.filter(Boolean);
 }
 
 export const mockServices: LocalizationServices = {
@@ -181,10 +198,33 @@ export const mockServices: LocalizationServices = {
     return buildGenericAssets(profile, points, false);
   },
 
-  async *simulateConsumers(profile) {
-    const list = profile.demoId && demoPresets[profile.demoId] ? demoPresets[profile.demoId].feedback : genericFeedback;
-    for (const feedback of list) {
-      await pause(380);
+  async *simulateConsumers(profile, _version, config) {
+    const preset = profile.demoId && demoPresets[profile.demoId] ? demoPresets[profile.demoId] : undefined;
+    if (preset) {
+      for (const feedback of preset.feedback) {
+        await pause(360);
+        yield feedback;
+      }
+      return;
+    }
+    const mktEn = config.market.name;
+    const mktZh = config.market.zh;
+    const audEn = config.audience.name;
+    const audZh = config.audience.zh;
+    const localizedFallback: ConsumerFeedback[] = genericFeedback.map((fb, idx) =>
+      idx === 0
+        ? {
+            ...fb,
+            persona: {
+              ...fb.persona,
+              profile: `${mktEn} · ${audEn}`,
+              profileZh: `${mktZh} · ${audZh}`,
+            },
+          }
+        : fb,
+    );
+    for (const feedback of localizedFallback) {
+      await pause(360);
       yield feedback;
     }
   },

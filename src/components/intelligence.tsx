@@ -24,7 +24,7 @@ export function Intelligence({
   const risks = 'result' in flow ? flow.result.risks : [];
   const feedback = 'feedback' in flow ? flow.feedback : [];
   const testing = flow.status === 'testing';
-  const canTest = flow.status === 'generated' || flow.status === 'feedback-ready';
+  const canTest = flow.status === 'generated' || flow.status === 'feedback-ready' || flow.status === 'refined';
   const canRefine = flow.status === 'feedback-ready';
   const levels = ['High', 'Medium', 'Low'] as const;
   const isLive = aiMode === 'live' && getrunConfigured;
@@ -49,7 +49,7 @@ export function Intelligence({
               <div className="risk-overview">
                 {levels.map((level, index) => (
                   <div key={level}>
-                    <span className={`risk-level ${level.toLowerCase()}`}>{t(level, ['高危', '注意', '合规'][index])}</span>
+                    <span className={`risk-level ${level.toLowerCase()}`}>{t(level, ['高危', '注意', '提示'][index])}</span>
                     <b>{risks.filter(r => r.level === level).length}</b>
                   </div>
                 ))}

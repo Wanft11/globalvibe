@@ -87,9 +87,45 @@ const themePalettes: Record<
   },
 };
 
+function clampTokenToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, withEllipsis = false): string {
+  const suffix = withEllipsis ? '…' : '';
+  if (ctx.measureText(text + suffix).width <= maxWidth) return text + suffix;
+  let out = '';
+  for (const ch of Array.from(text)) {
+    if (ctx.measureText(out + ch + suffix).width > maxWidth) break;
+    out += ch;
+  }
+  return out + suffix;
+}
+
+function splitOversizedTokens(ctx: CanvasRenderingContext2D, words: string[], maxWidth: number): string[] {
+  const tokens: string[] = [];
+  for (const word of words) {
+    if (ctx.measureText(word).width <= maxWidth) {
+      tokens.push(word);
+      continue;
+    }
+    let chunk = '';
+    for (const ch of Array.from(word)) {
+      if (chunk && ctx.measureText(chunk + ch).width > maxWidth) {
+        tokens.push(chunk);
+        chunk = ch;
+      } else {
+        chunk += ch;
+      }
+    }
+    if (chunk) tokens.push(chunk);
+  }
+  return tokens;
+}
+
 function wrapCanvasLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return [];
+  const rawWords = text.trim().split(/\s+/).filter(Boolean);
+  if (!rawWords.length || maxLines < 1) return [];
+  const words = splitOversizedTokens(ctx, rawWords, maxWidth);
+  if (maxLines === 1) {
+    return [words.length > 1 ? clampTokenToWidth(ctx, words.join(' '), maxWidth, ctx.measureText(words.join(' ')).width > maxWidth) : words[0]];
+  }
   const lines: string[] = [];
   let current = words[0];
   for (let i = 1; i < words.length; i++) {
@@ -100,15 +136,10 @@ function wrapCanvasLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
       lines.push(current);
       current = words[i];
       if (lines.length === maxLines - 1) {
-        for (let j = i + 1; j < words.length; j++) {
-          const next = `${current} ${words[j]}`;
-          if (ctx.measureText(`${next}…`).width <= maxWidth) current = next;
-          else {
-            current = `${current}…`;
-            break;
-          }
-        }
-        lines.push(current);
+        const rest = [current, ...words.slice(i + 1)].join(' ');
+        lines.push(
+          ctx.measureText(rest).width <= maxWidth ? rest : clampTokenToWidth(ctx, rest, maxWidth, true),
+        );
         return lines;
       }
     }
@@ -189,7 +220,7 @@ export async function exportVisualPosterPng(opts: {
 }): Promise<boolean> {
   try {
     const { asset, imageSrc, theme, productName, versionNumber } = opts;
-    if (!asset.visual) return false;
+    if (!asset.visual || !imageSrc) return false;
     const palette = themePalettes[theme];
     const isInstagram = asset.channel === 'Instagram';
     const width = isInstagram ? 1080 : 1440;
@@ -213,51 +244,57 @@ export async function exportVisualPosterPng(opts: {
     ctx.fillRect(imgX, imgY, imgW, imgH);
 
     if (imageSrc) {
-      try {
-        const img = await loadImage(imageSrc);
-        const isTransparentOrIcon = imageSrc.endsWith('.webp') || img.naturalWidth < 600;
-        drawCoverOrContainImage(ctx, img, imgX, imgY, imgW, imgH, isTransparentOrIcon ? 'contain' : 'cover');
-      } catch {
-        // Fallback placeholder background remains visible if image load fails
-      }
+      const img = await loadImage(imageSrc);
+      const isTransparentOrIcon = imageSrc.endsWith('.webp') || img.naturalWidth < 600;
+      drawCoverOrContainImage(ctx, img, imgX, imgY, imgW, imgH, isTransparentOrIcon ? 'contain' : 'cover');
     }
 
     const copyX = isInstagram ? 72 : 84;
     const copyW = isInstagram ? width - 144 : Math.round(width * 0.52) - 156;
-    let cursorY = isInstagram ? imgH + 68 : 120;
+    const ctaH = 56;
+    const maxCtaTop = height - ctaH - 42;
+    let cursorY = isInstagram ? imgH + 54 : 88;
 
     ctx.fillStyle = palette.tag;
-    ctx.font = '600 21px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText(productName.toUpperCase().slice(0, 42), copyX, cursorY);
-    cursorY += 54;
+    ctx.font = '600 20px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+    const tagLine = wrapCanvasLines(ctx, productName.toUpperCase(), copyW, 1)[0] ?? '';
+    ctx.fillText(tagLine, copyX, cursorY);
+    cursorY += 48;
 
     ctx.fillStyle = palette.title;
-    const headlineSize = isInstagram ? 58 : 56;
+    const headlineSize = asset.visual.headline.length > 42 ? 46 : isInstagram ? 52 : 50;
     ctx.font = `600 ${headlineSize}px Georgia, "Iowan Old Style", serif`;
-    const headlineLines = wrapCanvasLines(ctx, asset.visual.headline, copyW, 3);
+    const headlineLines = wrapCanvasLines(ctx, asset.visual.headline, copyW, 2);
     for (const line of headlineLines) {
       ctx.fillText(line, copyX, cursorY);
-      cursorY += Math.round(headlineSize * 1.16);
+      cursorY += Math.round(headlineSize * 1.15);
     }
-    cursorY += 16;
+    cursorY += 12;
 
     ctx.fillStyle = palette.body;
-    ctx.font = '500 26px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.font = '500 24px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+    const maxBenefitBottom = maxCtaTop - 18;
     for (const benefit of asset.visual.benefits.slice(0, 3)) {
-      const bulletLines = wrapCanvasLines(ctx, `•  ${benefit}`, copyW, 2);
+      if (cursorY + 32 > maxBenefitBottom) break;
+      const maxLinesForBenefit = cursorY + 68 <= maxBenefitBottom ? 2 : 1;
+      const bulletLines = wrapCanvasLines(ctx, `•  ${benefit}`, copyW, maxLinesForBenefit);
       for (const line of bulletLines) {
+        if (cursorY > maxBenefitBottom) break;
         ctx.fillText(line, copyX, cursorY);
-        cursorY += 36;
+        cursorY += 33;
       }
-      cursorY += 6;
+      cursorY += 4;
     }
 
-    cursorY += 22;
-    const ctaLabel = `${asset.visual.cta}  →`;
-    ctx.font = '600 24px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
-    const ctaPaddingX = 30;
+    cursorY = Math.min(maxCtaTop, cursorY + 18);
+    ctx.font = '600 23px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+    const ctaPaddingX = 28;
+    const arrowSuffix = '  →';
+    const maxCtaTextW = Math.max(40, copyW - ctaPaddingX * 2 - Math.ceil(ctx.measureText(arrowSuffix).width));
+    const rawCta = asset.visual.cta.trim();
+    const fittedCta = clampTokenToWidth(ctx, rawCta, maxCtaTextW, ctx.measureText(rawCta).width > maxCtaTextW);
+    const ctaLabel = `${fittedCta}${arrowSuffix}`;
     const ctaW = Math.min(copyW, Math.ceil(ctx.measureText(ctaLabel).width) + ctaPaddingX * 2);
-    const ctaH = 58;
 
     ctx.fillStyle = palette.ctaBg;
     ctx.strokeStyle = palette.ctaBorder;
@@ -267,7 +304,7 @@ export async function exportVisualPosterPng(opts: {
     ctx.stroke();
 
     ctx.fillStyle = palette.ctaText;
-    ctx.fillText(ctaLabel, copyX + ctaPaddingX, cursorY + 37);
+    ctx.fillText(ctaLabel, copyX + ctaPaddingX, cursorY + 36, Math.max(1, ctaW - ctaPaddingX * 2));
 
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
     if (!blob) return false;
@@ -332,12 +369,22 @@ export function exportMarkdownBrief(opts: {
   lines.push('');
 
   if (risks.length) {
+    const levelLabelZh: Record<CulturalRisk['level'], string> = { High: '高危', Medium: '注意', Low: '提示' };
+    const dimLabelZh: Record<CulturalRisk['dimension'], string> = {
+      'Language & Tone': '语言与语态适配',
+      'Cultural Sensitivity': '文化敏感度与禁忌',
+      'Marketing Claims': '宣传合规与绝对化声明',
+      'Visual Adaptation': '视觉审美本地化',
+      'Units & Localization': '度量衡与本土规范',
+    };
     lines.push(`## 3. ${isZh ? '跨文化风险诊断' : 'Cross-Cultural Diagnostics'}`);
     lines.push('');
     for (const r of risks) {
       const exp = isZh ? r.explanationZh ?? r.explanation : r.explanation;
       const rec = isZh ? r.recommendationZh ?? r.recommendation : r.recommendation;
-      lines.push(`- **[${r.level}] ${r.dimension}** (${r.original})`);
+      const lvl = isZh ? levelLabelZh[r.level] : r.level;
+      const dim = isZh ? dimLabelZh[r.dimension] : r.dimension;
+      lines.push(`- **[${lvl}] ${dim}** (${r.original})`);
       lines.push(`  - ${isZh ? '说明' : 'Issue'}: ${exp}`);
       lines.push(`  - ${isZh ? '建议' : 'Action'}: ${rec}`);
     }

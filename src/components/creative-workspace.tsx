@@ -70,6 +70,7 @@ export function CreativeWorkspace(p: Props) {
   const [copiedKey, setCopiedKey] = useState<{ key: string; ok: boolean }>();
   const [exportState, setExportState] = useState<string>();
   const [showSourceFor, setShowSourceFor] = useState<string>();
+  const [forceRiskyImgFor, setForceRiskyImgFor] = useState<string>();
   const copyTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const campaign = useRef<HTMLElement>(null);
@@ -80,13 +81,25 @@ export function CreativeWorkspace(p: Props) {
   const resultImage = p.result?.image;
   const resultChannels = p.result?.config.channels ?? [];
   const hasCleanAlt = Boolean(resultImage?.cleanSrc);
+  const highVisualRisk = Boolean(
+    resultImage && !hasCleanAlt && p.result?.risks.some(r => r.dimension === 'Visual Adaptation' && r.level === 'High'),
+  );
+  const allowRiskyImg = forceRiskyImgFor === resultImage?.src;
   const useCleanShot = showSourceFor !== resultImage?.src;
-  const activeImageSrc = hasCleanAlt && useCleanShot ? resultImage?.cleanSrc : resultImage?.src;
-  const imageLabel = resultImage
-    ? hasCleanAlt && useCleanShot
-      ? t('Localized clean DTC studio visual', '本地化极简 DTC 场景底图')
-      : t('Source product image', '原始商品图')
-    : t('Product image area', '商品图片预览区');
+  const activeImageSrc = hasCleanAlt
+    ? useCleanShot
+      ? resultImage?.cleanSrc
+      : resultImage?.src
+    : highVisualRisk && !allowRiskyImg
+      ? undefined
+      : resultImage?.src;
+  const imageLabel = highVisualRisk && !allowRiskyImg
+    ? t('High-risk source image withheld (upload clean studio shot)', '已拦截不符/高危原海报（建议上传净版商品图）')
+    : resultImage
+      ? hasCleanAlt && useCleanShot
+        ? t('Localized clean DTC studio visual', '本地化极简 DTC 场景底图')
+        : t('Source product image', '原始商品图')
+      : t('Product image area', '商品图片预览区');
 
   useEffect(() => {
     if (!asset && dialog.current?.open) dialog.current.close();
@@ -133,6 +146,11 @@ export function CreativeWorkspace(p: Props) {
 
   async function handleExportPng() {
     if (!asset?.visual || !p.result || !p.version) return;
+    if (!activeImageSrc) {
+      setExportState(t('Upload a clean product image to export PNG', '请先上传或启用商品图后再导出海报'));
+      setTimeout(() => setExportState(undefined), 2800);
+      return;
+    }
     try {
       const ok = await exportVisualPosterPng({
         asset,
@@ -456,6 +474,20 @@ export function CreativeWorkspace(p: Props) {
                             : t('Showing: Original CN Poster (Switch Clean)', '当前：中文大字报原图（切回净版底图）')}
                         </button>
                       )}
+                      {highVisualRisk && (
+                        <button
+                          type="button"
+                          className="clean-toggle"
+                          onClick={() =>
+                            setForceRiskyImgFor(prev => (prev === resultImage?.src ? undefined : resultImage?.src))
+                          }
+                        >
+                          <ImageIcon size={13} />
+                          {allowRiskyImg
+                            ? t('Hide high-risk source image', '隐藏高危/不符原图')
+                            : t('High-risk image withheld (Show anyway)', '已拦截高危/不符原图（点击仍要显示）')}
+                        </button>
+                      )}
                     </div>
                     <CampaignVisual asset={asset} image={activeImageSrc} label={imageLabel} theme={p.visualTheme} />
                   </>
@@ -515,7 +547,12 @@ export function CreativeWorkspace(p: Props) {
                   </Button>
                   {asset.visual ? (
                     <>
-                      <Button variant="default" onClick={handleExportPng}>
+                      <Button
+                        variant="default"
+                        disabled={!activeImageSrc}
+                        title={!activeImageSrc ? t('Add or enable a product image first', '需提供商品图片后方可导出 PNG 海报') : undefined}
+                        onClick={handleExportPng}
+                      >
                         <ArrowDownToLine size={14} />
                         {t('Export PNG Poster', '导出海报 PNG')}
                       </Button>
@@ -591,7 +628,11 @@ export function CreativeWorkspace(p: Props) {
                     : t('Copy All', '复制文案')}
                 </Button>
                 {asset.visual && (
-                  <Button variant="default" onClick={handleExportPng}>
+                  <Button
+                    variant="default"
+                    disabled={!activeImageSrc}
+                    onClick={handleExportPng}
+                  >
                     <ArrowDownToLine size={14} />
                     {t('Download PNG', '下载 PNG 海报')}
                   </Button>
@@ -601,7 +642,26 @@ export function CreativeWorkspace(p: Props) {
                 </Button>
               </div>
             </div>
-            {asset.visual && <CampaignVisual asset={asset} image={activeImageSrc} label={imageLabel} theme={p.visualTheme} />}
+            {asset.visual ? (
+              <CampaignVisual asset={asset} image={activeImageSrc} label={imageLabel} theme={p.visualTheme} />
+            ) : (
+              <div className="modal-channel-banner">
+                <strong>
+                  {asset.channel === 'TikTok'
+                    ? t('TikTok 9:16 Creator Storyboard', 'TikTok 短视频分镜口播脚本卡')
+                    : asset.channel === 'Reddit'
+                      ? t('Reddit Authentic Community Thread', 'Reddit 去硬广透明社区讨论帖')
+                      : t('Overseas Buyer Outreach Email', '海外 B2B 买手商务开发信')}
+                </strong>
+                <span>
+                  {p.result
+                    ? `${p.locale === 'zh' ? p.result.config.market.zh : p.result.config.market.name} · ${
+                        p.locale === 'zh' ? p.result.config.audience.zh : p.result.config.audience.name
+                      }`
+                    : ''}
+                </span>
+              </div>
+            )}
             <dl className="asset-fields">
               {asset.sections.map(section => {
                 const modalKey = `modal-${asset.channel}-${p.version?.number}-${section.label}`;

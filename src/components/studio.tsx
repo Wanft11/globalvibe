@@ -400,9 +400,10 @@ export function Studio() {
   }
 
   async function testConsumers() {
-    if ((flow.status !== 'generated' && flow.status !== 'feedback-ready') || !result) return;
+    if ((flow.status !== 'generated' && flow.status !== 'feedback-ready' && flow.status !== 'refined') || !result) return;
     const run = ++operation.current;
     const settings = result.config;
+    const targetVersion = activeVersion ?? result.versions.at(-1)!;
     setError(undefined);
     setCampaignError(undefined);
     setFlow({ status: 'testing', result, feedback: [] });
@@ -412,7 +413,7 @@ export function Studio() {
       const controller = new AbortController();
       campaignRequest.current = controller;
       try {
-        const liveFeedback = await runGetRunFocusGroup(result.profile, result.versions[0], settings, locale, controller.signal);
+        const liveFeedback = await runGetRunFocusGroup(result.profile, targetVersion, settings, locale, controller.signal);
         if (run !== operation.current) return;
         if (liveFeedback?.length) {
           setFlow({ status: 'feedback-ready', result, feedback: liveFeedback });
@@ -426,7 +427,7 @@ export function Studio() {
 
     try {
       const collected: ConsumerFeedback[] = [];
-      for await (const response of localizationServices.simulateConsumers(result.profile, result.versions[0], settings)) {
+      for await (const response of localizationServices.simulateConsumers(result.profile, targetVersion, settings)) {
         if (run !== operation.current) return;
         collected.push(response);
         setFlow({ status: 'testing', result, feedback: [...collected] });
@@ -448,7 +449,8 @@ export function Studio() {
     setError(undefined);
     setRefining(true);
     setCampaignError(undefined);
-    const previous = currentResult.versions[0];
+    const v1 = currentResult.versions[0];
+    const baseVersion = activeVersion ?? v1;
 
     try {
       const useLive = aiMode === 'live' && getrun.configured;
@@ -458,7 +460,7 @@ export function Studio() {
         try {
           const refinedLive = await runGetRunRefine(
             currentResult.profile,
-            previous,
+            baseVersion,
             currentFeedback,
             settings,
             locale,
@@ -469,23 +471,37 @@ export function Studio() {
             if (!settings.channels.includes(channel)) setChannel(settings.channels[0]);
             setFlow({
               status: 'refined',
-              result: { ...currentResult, versions: [previous, refinedLive] },
+              result: { ...currentResult, versions: [v1, refinedLive] },
               feedback: currentFeedback,
             });
             setVersion(2);
             return;
           }
+          if (v1.source === 'getrun') {
+            setCampaignError('output');
+            return;
+          }
         } catch (failure) {
           if (run !== operation.current) return;
-          setCampaignError(failure instanceof CampaignError ? failure.message : 'upstream');
+          const code = failure instanceof CampaignError ? failure.message : 'upstream';
+          if (v1.source === 'getrun') {
+            setCampaignError(code);
+            return;
+          }
+          setCampaignError(code);
         }
       }
 
-      const refinedMock = await localizationServices.refineContent(currentResult.profile, previous, currentFeedback, settings);
+      if (v1.source === 'getrun') {
+        setCampaignError('config');
+        return;
+      }
+
+      const refinedMock = await localizationServices.refineContent(currentResult.profile, baseVersion, currentFeedback, settings);
       if (run !== operation.current) return;
       setFlow({
         status: 'refined',
-        result: { ...currentResult, versions: [previous, refinedMock] },
+        result: { ...currentResult, versions: [v1, refinedMock] },
         feedback: currentFeedback,
       });
       setVersion(2);
@@ -523,7 +539,11 @@ export function Studio() {
     upstream: t('GetRun live request did not complete.', 'GetRun 实时请求未完成。'),
   };
   const campaignMessage = campaignError
-    ? `${campaignMessages[campaignError] ?? campaignMessages.upstream} ${t('Showing fallback copy.', '已自动切换为兜底方案展示。')}`
+    ? `${campaignMessages[campaignError] ?? campaignMessages.upstream} ${
+        flow.status === 'feedback-ready' && result?.versions[0]?.source === 'getrun'
+          ? t('Version 1 preserved — click Refine to retry.', '已完好保留版本 1 原稿，可点击重试精修。')
+          : t('Showing fallback copy.', '已自动切换为兜底方案展示。')
+      }`
     : '';
 
   return (
@@ -693,7 +713,7 @@ export function Studio() {
         </span>
         <span>
           <CircleHelp size={13} />
-          {t('Phase 2 / GetRun AI Studio', '第二阶段 / GetRun 智能工作区')}
+          {t('GlobalVibe · Cross-Cultural Localization Engine', 'GlobalVibe · 跨境跨文化本地化引擎')}
         </span>
       </footer>
     </div>
