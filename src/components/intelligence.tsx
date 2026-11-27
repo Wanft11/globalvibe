@@ -1,5 +1,17 @@
-import { Check, ChevronDown, FlaskConical, LoaderCircle, Radar, ShieldCheck, Sparkles, UsersRound } from 'lucide-react';
-import type { AiMode, Locale, WorkflowState } from '@/domain/types';
+import {
+  BookOpenCheck,
+  Check,
+  ChevronDown,
+  ExternalLink,
+  FlaskConical,
+  LoaderCircle,
+  Radar,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  UsersRound,
+} from 'lucide-react';
+import type { AiMode, Locale, WorkflowState, ZhihuInsightPack } from '@/domain/types';
 import { Empty, formatDimension, PaneHeading, Skeleton, translate } from './common';
 import { Button } from './ui/button';
 
@@ -9,6 +21,11 @@ export function Intelligence({
   aiMode,
   getrunConfigured,
   refining,
+  zhihuInsights,
+  zhihuLoading,
+  zhidaLoading,
+  onSelectZhihuQuery,
+  onAskZhida,
   onTest,
   onRefine,
 }: {
@@ -17,6 +34,11 @@ export function Intelligence({
   aiMode: AiMode;
   getrunConfigured: boolean;
   refining: boolean;
+  zhihuInsights?: ZhihuInsightPack;
+  zhihuLoading: boolean;
+  zhidaLoading: boolean;
+  onSelectZhihuQuery: (query: string) => void;
+  onAskZhida: () => void;
   onTest: () => void;
   onRefine: () => void;
 }) {
@@ -29,10 +51,19 @@ export function Intelligence({
   const levels = ['High', 'Medium', 'Low'] as const;
   const isLive = aiMode === 'live' && getrunConfigured;
 
+  const fallbackBadgeLabel =
+    zhihuInsights?.degradedReason === 'quota'
+      ? t('Quota reached · Curated', '今日额度已满 · 精选参考')
+      : zhihuInsights?.degradedReason === 'empty'
+        ? t('Broadened · Curated', '无精确命中 · 相关参考')
+        : zhihuInsights?.degradedReason === 'unconfigured'
+          ? t('Curated cases', '精选出海参考')
+          : t('Offline · Curated', '接口降级 · 精选参考');
+
   return (
     <aside className="pane intelligence" aria-label={t('Cultural Intelligence', '跨文化洞察')}>
       <PaneHeading icon={Radar} title={t('Cultural Intelligence', '跨文化洞察')}>
-        {t('Market fit, risk, and audience response', '合规避坑雷达与海外虚拟客群内测')}
+        {t('Market fit, Zhihu seller cases, and audience response', '合规避坑雷达、知乎实战引证与海外客群内测')}
       </PaneHeading>
       <div className="pane-scroll intelligence-scroll">
         <section className="intelligence-module">
@@ -86,6 +117,121 @@ export function Intelligence({
               {t(
                 'Run localization to review claims, cultural taboos, visual fit, and units.',
                 '开始本地化后，自动检测宣传合规、肤色/宗教禁忌、视觉审美与度量衡差异。',
+              )}
+            </Empty>
+          )}
+        </section>
+
+        <section className="intelligence-module zhihu-module">
+          <header className="module-title">
+            <div>
+              <BookOpenCheck size={16} />
+              <h3>{t('Zhihu Seller Cases', '知乎出海实战引证')}</h3>
+            </div>
+            {zhihuInsights && (
+              <span className={`zhihu-badge ${zhihuInsights.source === 'live' ? 'live' : 'fallback'}`}>
+                {zhihuLoading && <LoaderCircle size={11} className="spin" />}
+                {zhihuInsights.source === 'live'
+                  ? t('Zhihu OpenAPI · Live', '知乎开放平台 · 实时')
+                  : fallbackBadgeLabel}
+              </span>
+            )}
+          </header>
+
+          {flow.status === 'analyzing' || (zhihuLoading && !zhihuInsights) ? (
+            <Skeleton label={t('Searching Zhihu Open Platform for seller posts…', '正在通过知乎开放平台检索出海一线实战贴…')} />
+          ) : zhihuInsights ? (
+            <>
+              <div className="zhihu-queries" role="group" aria-label={t('Zhihu search topics', '知乎检索主题')}>
+                {zhihuInsights.suggestedQueries.map(q => (
+                  <button
+                    key={q}
+                    type="button"
+                    className="zhihu-query-chip"
+                    aria-pressed={q === zhihuInsights.activeQuery}
+                    disabled={zhihuLoading}
+                    onClick={() => onSelectZhihuQuery(q)}
+                  >
+                    <Search size={11} />
+                    <span>{q}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="zhihu-list">
+                {zhihuInsights.items.map(item => (
+                  <article key={item.id} className="zhihu-card">
+                    <a href={item.url} target="_blank" rel="noopener noreferrer" className="zhihu-card-title">
+                      <span>{item.title}</span>
+                      <ExternalLink size={12} aria-hidden="true" />
+                    </a>
+                    <p className="zhihu-card-excerpt">{item.excerpt}</p>
+                    <footer className="zhihu-card-meta">
+                      <span className="zhihu-type">
+                        {item.contentType === 'Answer' ? t('Answer', '回答') : t('Column', '专栏')}
+                      </span>
+                      <span className="zhihu-author" title={item.authorBadge || item.author}>
+                        {item.author}
+                        {item.authorBadge ? ` · ${item.authorBadge}` : ''}
+                      </span>
+                      {item.voteUpCount > 0 ? (
+                        <span className="zhihu-stat">
+                          ▲ {item.voteUpCount} {t('upvotes', '赞同')}
+                        </span>
+                      ) : item.authorityLevel === '3' || item.authorityLevel === '4' ? (
+                        <span className="zhihu-stat">{t('Verified insight', '高专度内容')}</span>
+                      ) : null}
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="zhihu-open-link">
+                        {t('Post ↗', '原帖 ↗')}
+                      </a>
+                    </footer>
+                  </article>
+                ))}
+              </div>
+
+              {zhihuInsights.zhidaBrief ? (
+                <div className="zhida-box">
+                  <div className="zhida-head">
+                    <span>
+                      <Sparkles size={13} />
+                      <strong>{t('Zhihu Zhida · Actionable Playbook', '知乎直答 · 实操避坑提炼')}</strong>
+                    </span>
+                    <small>
+                      {zhihuInsights.zhidaSource === 'live' ? 'zhida-fast-1p5' : t('Fallback', '离线参考')}
+                    </small>
+                  </div>
+                  <p className="zhida-text">{zhihuInsights.zhidaBrief}</p>
+                  {zhihuInsights.zhidaLocale && zhihuInsights.zhidaLocale !== locale && (
+                    <button
+                      type="button"
+                      className="skip-link zhida-refresh"
+                      disabled={zhidaLoading}
+                      onClick={onAskZhida}
+                    >
+                      {zhidaLoading ? <LoaderCircle size={12} className="spin" /> : <Sparkles size={12} />}
+                      {t('Refresh summary in English', '切换为中文避坑总结')}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="zhida-trigger"
+                  disabled={zhidaLoading}
+                  onClick={onAskZhida}
+                >
+                  {zhidaLoading ? <LoaderCircle size={14} className="spin" /> : <Sparkles size={14} />}
+                  {zhidaLoading
+                    ? t('Synthesizing via Zhihu Zhida…', '正在调用知乎直答提炼…')
+                    : t('Summarize 3 Takeaways via Zhihu Zhida', '调用「知乎直答」提炼 3 条避坑对策')}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Empty icon={BookOpenCheck} title={t('Zhihu seller cases standby', '等待匹配知乎出海实战案例')}>
+              {t(
+                'Diagnose a brief to pull real Zhihu cross-border seller discussions & compliance takeaways.',
+                '启动本地化或加载案例后，自动检索知乎跨境一线答主的真实踩坑贴与原帖引证。',
               )}
             </Empty>
           )}

@@ -28,16 +28,20 @@ import {
 import { audiences, channels, demoList, demoPresets, findDemoPreset, markets } from '@/domain/mock-data';
 import { mockServices } from '@/domain/mock-services';
 import { localizationServices } from '@/domain/services';
+import { fetchZhidaSummary, fetchZhihuInsights } from '@/domain/zhihu-client';
 import type {
   AiMode,
   Channel,
   ConsumerFeedback,
+  CulturalRisk,
   DemoCaseId,
   Locale,
   LocalizationConfig,
   ProductInput,
+  ProductProfile,
   VisualTheme,
   WorkflowState,
+  ZhihuInsightPack,
 } from '@/domain/types';
 import { compressImageToDataUrl } from '@/lib/export-assets';
 import { translate } from './common';
@@ -75,8 +79,21 @@ export function Studio() {
   const [error, setError] = useState<'localize' | 'test' | 'refine'>();
   const [imageError, setImageError] = useState(false);
   const [campaignError, setCampaignError] = useState<string>();
+  const [zhihuInsights, setZhihuInsights] = useState<ZhihuInsightPack>();
+  const [zhihuLoading, setZhihuLoading] = useState(false);
+  const [zhidaLoading, setZhidaLoading] = useState(false);
 
   const campaignRequest = useRef<AbortController>(null);
+  const zhihuRequest = useRef<AbortController>(null);
+  const zhidaRequest = useRef<AbortController>(null);
+  const zhihuContext = useRef<{
+    profile: ProductProfile;
+    description: string;
+    config: LocalizationConfig;
+    risks: CulturalRisk[];
+  }>(null);
+  const zhihuProductEpoch = useRef(0);
+  const zhihuSearchOp = useRef(0);
   const demoMenuRef = useRef<HTMLDivElement>(null);
   const blobUrls = useRef<Set<string>>(new Set());
   const operation = useRef(0);
@@ -126,6 +143,8 @@ export function Studio() {
     const urls = blobUrls.current;
     return () => {
       campaignRequest.current?.abort();
+      zhihuRequest.current?.abort();
+      zhidaRequest.current?.abort();
       for (const url of Array.from(urls)) {
         URL.revokeObjectURL(url);
       }
@@ -157,6 +176,90 @@ export function Studio() {
     };
   }
 
+  function resetZhihuState() {
+    zhihuProductEpoch.current++;
+    zhihuSearchOp.current++;
+    zhihuRequest.current?.abort();
+    zhidaRequest.current?.abort();
+    zhihuContext.current = null;
+    setZhihuInsights(undefined);
+    setZhihuLoading(false);
+    setZhidaLoading(false);
+  }
+
+  async function triggerZhihuSearch(
+    profile: ProductProfile,
+    description: string,
+    config: LocalizationConfig,
+    risks: CulturalRisk[],
+    customQuery?: string,
+    keepExisting = false,
+  ) {
+    if (!keepExisting) {
+      zhihuProductEpoch.current++;
+      zhidaRequest.current?.abort();
+      setZhidaLoading(false);
+      setZhihuInsights(undefined);
+    }
+    const searchOp = ++zhihuSearchOp.current;
+    zhihuRequest.current?.abort();
+    zhihuContext.current = { profile, description, config, risks };
+    const controller = new AbortController();
+    zhihuRequest.current = controller;
+    setZhihuLoading(true);
+    try {
+      const pack = await fetchZhihuInsights(
+        { profile, description, config, risks, query: customQuery },
+        controller.signal,
+      );
+      if (searchOp !== zhihuSearchOp.current || !pack) return;
+      setZhihuInsights(prev =>
+        keepExisting && prev?.zhidaBrief
+          ? {
+              ...pack,
+              zhidaBrief: prev.zhidaBrief,
+              zhidaLocale: prev.zhidaLocale,
+              zhidaSource: prev.zhidaSource,
+            }
+          : pack,
+      );
+    } catch {
+      // Ignore abort or transient network error
+    } finally {
+      if (searchOp === zhihuSearchOp.current) setZhihuLoading(false);
+    }
+  }
+
+  function selectZhihuQuery(query: string) {
+    const ctx = zhihuContext.current;
+    if (!ctx || query === zhihuInsights?.activeQuery) return;
+    void triggerZhihuSearch(ctx.profile, ctx.description, ctx.config, ctx.risks, query, true);
+  }
+
+  async function askZhida() {
+    const ctx = zhihuContext.current;
+    if (!ctx || zhidaLoading) return;
+    const epochSnapshot = zhihuProductEpoch.current;
+    zhidaRequest.current?.abort();
+    const controller = new AbortController();
+    zhidaRequest.current = controller;
+    setZhidaLoading(true);
+    try {
+      const res = await fetchZhidaSummary(
+        { locale, profile: ctx.profile, config: ctx.config, risks: ctx.risks },
+        controller.signal,
+      );
+      if (epochSnapshot !== zhihuProductEpoch.current || !res) return;
+      setZhihuInsights(prev =>
+        prev ? { ...prev, zhidaBrief: res.summary, zhidaLocale: locale, zhidaSource: res.source } : prev,
+      );
+    } catch {
+      // Ignore abort
+    } finally {
+      if (epochSnapshot === zhihuProductEpoch.current) setZhidaLoading(false);
+    }
+  }
+
   function markEdited(nextInput = input) {
     operation.current++;
     campaignRequest.current?.abort();
@@ -165,6 +268,7 @@ export function Studio() {
     setRefining(false);
     const hasBrief = Boolean(nextInput.image || nextInput.description.trim());
     if (!result) {
+      resetZhihuState();
       setDirty(false);
       setFlow({ status: hasBrief ? 'ready' : 'empty' });
       return;
@@ -237,6 +341,7 @@ export function Studio() {
         ],
       },
     });
+    void triggerZhihuSearch(preset.profile, preset.input.description, presetConfig, preset.risks);
 
     if (baseImage?.src) {
       const dataUrl = await compressImageToDataUrl(baseImage.src);
@@ -249,6 +354,7 @@ export function Studio() {
   function reset() {
     operation.current++;
     campaignRequest.current?.abort();
+    resetZhihuState();
     setInput(emptyInput);
     setMarket('us');
     setAudience('general');
@@ -292,6 +398,9 @@ export function Studio() {
         versions: [{ number: 1, source: 'mock', sellingPoints, assets, changes: [] }],
       },
     });
+    if (!zhihuContext.current) {
+      void triggerZhihuSearch(baseProfile, snapshotInput.description, settings, risks);
+    }
   }
 
   async function skipWaitToSample() {
@@ -310,6 +419,7 @@ export function Studio() {
     };
     setError(undefined);
     setCampaignError(undefined);
+    resetZhihuState();
     setDirty(false);
     setVersion(1);
     setFlow({ status: 'analyzing' });
@@ -361,6 +471,7 @@ export function Studio() {
             versions: [partialVersion],
           },
         });
+        void triggerZhihuSearch(diagnosed.profile, readyInput.description, settings, diagnosed.risks);
 
         const liveAssets = await runGetRunChannels(
           diagnosed.profile,
@@ -695,6 +806,11 @@ export function Studio() {
           aiMode={aiMode}
           getrunConfigured={getrun.configured}
           refining={refining}
+          zhihuInsights={zhihuInsights}
+          zhihuLoading={zhihuLoading}
+          zhidaLoading={zhidaLoading}
+          onSelectZhihuQuery={selectZhihuQuery}
+          onAskZhida={askZhida}
           onTest={testConsumers}
           onRefine={refine}
         />

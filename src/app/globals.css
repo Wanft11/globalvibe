@@ -229,6 +229,32 @@ mark { color: var(--accent); background: var(--accent-soft); padding-inline: 4px
 .risk-body dd { color: var(--muted); overflow-wrap: anywhere; line-height: 1.5; }
 .module-note { margin-top: 8px; }
 
+.zhihu-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 660; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+.zhihu-badge.live { background: var(--low-bg); color: var(--low); border: 1px solid #bfe4d0; }
+.zhihu-badge.fallback { background: var(--medium-bg); color: var(--medium); border: 1px solid #f0d7a8; }
+.zhihu-queries { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.zhihu-query-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 620; text-align: left; }
+.zhihu-query-chip:hover:not(:disabled), .zhihu-query-chip[aria-pressed=true] { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent); }
+.zhihu-list { display: grid; gap: 7px; }
+.zhihu-card { border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; background: var(--subtle); display: grid; gap: 5px; }
+.zhihu-card-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; color: var(--ink); font-size: 12.5px; font-weight: 680; text-decoration: none; line-height: 1.38; }
+.zhihu-card-title:hover { color: var(--accent); text-decoration: underline; }
+.zhihu-card-title svg { color: var(--muted); margin-top: 2px; }
+.zhihu-card-excerpt { font-size: 11.5px; color: var(--muted); line-height: 1.48; overflow-wrap: anywhere; }
+.zhihu-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.zhihu-type { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px; font-weight: 640; color: var(--text); }
+.zhihu-author { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zhihu-stat { color: var(--accent); font-weight: 650; }
+.zhihu-open-link { margin-left: auto; color: var(--accent); font-weight: 650; text-decoration: none; }
+.zhihu-open-link:hover { text-decoration: underline; }
+.zhida-trigger { width: 100%; margin-top: 8px; font-size: 12px; }
+.zhida-box { margin-top: 8px; padding: 9px 11px; border-radius: 6px; background: var(--accent-soft); border: 1px solid var(--accent-border); display: grid; gap: 5px; }
+.zhida-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11.5px; color: var(--accent); }
+.zhida-head span { display: inline-flex; align-items: center; gap: 5px; }
+.zhida-head small { color: var(--muted); font-size: 10.5px; }
+.zhida-text { font-size: 12px; color: var(--ink); white-space: pre-line; line-height: 1.5; }
+.zhida-refresh { justify-content: flex-start; padding: 0; }
+
 .feedback-list { display: grid; }
 .feedback + .feedback { border-top: 1px solid var(--line); }
 .feedback { padding: 12px 0; }
@@ -314,6 +340,7 @@ dialog .social-visual { margin-inline: auto; }
   .workbench { grid-template-columns: minmax(219px,2fr) minmax(0,3fr); }
   .intelligence { grid-column: 1 / -1; }
   .intelligence-scroll { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .intelligence-scroll .focus-group { grid-column: 1 / -1; }
   .intelligence-module + .intelligence-module { border-top: 0; margin-top: 0; padding-top: 0; }
   .breadcrumb { display: none; }
 }

@@ -111,6 +111,30 @@ export interface ContentVersion {
   changesZh?: string[];
 }
 
+export interface ZhihuReference {
+  id: string;
+  title: string;
+  excerpt: string;
+  url: string;
+  author: string;
+  authorBadge?: string;
+  contentType: 'Answer' | 'Article' | 'Post';
+  voteUpCount: number;
+  commentCount: number;
+  authorityLevel?: string;
+}
+
+export interface ZhihuInsightPack {
+  source: 'live' | 'fallback';
+  degradedReason?: 'unconfigured' | 'credentials' | 'quota' | 'empty' | 'upstream';
+  activeQuery: string;
+  suggestedQueries: string[];
+  items: ZhihuReference[];
+  zhidaBrief?: string;
+  zhidaLocale?: Locale;
+  zhidaSource?: 'live' | 'fallback';
+}
+
 export interface LocalizationResult {
   profile: ProductProfile;
   config: LocalizationConfig;
